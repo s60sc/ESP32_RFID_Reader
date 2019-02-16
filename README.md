@@ -1,9 +1,9 @@
 # FDX-B (pet microchip) and EM4100 RFID Reader for ESP32
 
-This software library along with suitable hardware will decode the tags in microchipped pets used in the UK and EU which all use the 134.2kHz biphased encoded FDX-B protocol.
+This software library along with suitable hardware will decode the tags in microchipped pets used in the UK and EU which all use the 134.2kHz biphase encoded FDX-B protocol.
 It can also be used to decode the 125kHz Manchester encoded EM4100 tags.
 
-The library was developed for use in a microchip controlled catflap, however the cheap RDM6300 based hardware used did not have sufficient range to be reliable, but is fine for a handheld pet microchip reader.
+The library was developed for use in a microchip controlled catflap, however the RDM6300 hardware used did not have sufficient range to be reliable, but is fine for a handheld pet microchip reader.
 
 ## Hardware
 
