@@ -231,9 +231,10 @@ bool findHeader() {
       else countBit = 0;
     }
     // if appropriate header found, parse data
-    if (countBit == countEnd) 
+    if (countBit == countEnd) {
       if (encodingFDX_B) return parseBitBufferFDX(i); 
       else return parseBitBufferEM(i);
+    }  
   }
   if (doDebug) Serial.printf("No %s header found\n", codeStr[encodingFDX_B]);
   return false;
