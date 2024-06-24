@@ -27,7 +27,7 @@ To convert it for 134.2kHz pet microchips:
 - increase the antenna resonant frequency to 134.2kHz, either:
   - reduce the value of the capacitor ringed in cyan.
   - remove some turns from the antenna supplied with the RDM6300 to reduce its inductance.
-  - to assist with selecting values use the [spreadsheet](extras/antennaFreq.xlsx) in the `extras` folder.
+  - to assist with selecting values use the `antennaFreq.xlsx` spreadsheet in the `extras` folder.
 - the ESP32 supplies the input clock signal and decodes the raw data.
 - the end of the resistor pointed to by the green arrow is the raw signal output to be sent to the ESP32.
 - the end of the resistor pointed to by the pink arrow is for the input clock signal from the ESP32.
