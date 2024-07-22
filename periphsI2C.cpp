@@ -605,6 +605,12 @@ void lcdClear() {
   delayMicroseconds(2000);  
 }
 
+void lcdHome() {
+  // set cursor position to zero
+  lcdSend(LCD_RETURNHOME);  
+  delayMicroseconds(2000); 
+}
+
 void lcdDisplay(bool setDisplay) {
   // Turn the display on / off (not backlight)
   if (setDisplay) displaycontrol |= LCD_DISPLAYON;
@@ -652,12 +658,6 @@ static bool setupLCD1602(bool showWarn) {
 void lcdPrint(const char* str) {
   // write string to lcd
 	for (int i=0; i<strlen(str); i++) lcdSend((uint8_t)str[i], Rs);
-}
-
-void lcdHome() {
-  // set cursor position to zero
-	lcdSend(LCD_RETURNHOME);  
-	delayMicroseconds(2000); 
 }
 
 void lcdSetCursorPos(uint8_t row, uint8_t col) {

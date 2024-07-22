@@ -40,7 +40,7 @@ To convert it for 134.2kHz pet microchips:
 ## Installation
 
 Download GitHub files into the Arduino IDE sketch folder, removing `-master` from the application folder name.
-Compile using arduino core v2.x or V3.x with Partition Scheme: `Minimal SPIFFS (...)`. 
+Compile using arduino core v2.x or V3.x (min v3.0.3) with Partition Scheme: `Minimal SPIFFS (...)`. 
 
 On first installation, the application will start in wifi AP mode - connect to SSID: **ESP32_RFID_...**, to allow router and password details to be entered via the web page on 192.168.4.1. The configuration data file (except passwords) is automatically created, and the application web pages automatically downloaded from GitHub to the SD card **/data** folder when an internet connection is available. 
 
