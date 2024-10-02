@@ -33,7 +33,7 @@
 #define IN_FILE_NAME_LEN 128
 #define JSON_BUFF_LEN (1024 * 4) // set big enough to hold json string
 #define MAX_CONFIGS 100 // > number of entries in configs.txt
-#define GITHUB_PATH ""
+#define GITHUB_PATH "/s60sc/ESP32_RFID_Reader-master"
 
 #define STORAGE LittleFS // One of LittleFS or SD_MMC
 #define RAMSIZE (1024 * 8) 
