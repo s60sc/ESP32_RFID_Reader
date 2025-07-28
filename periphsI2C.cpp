@@ -3,34 +3,46 @@
 //
 // OLED SSD1306 display 128*64
 // PCF8591 ADC
-// BM*280 temperature, pressure, altitude, + humidity for BME280
+// BM*280 temperature, pressure, altitude for BMP280, + humidity for BME280
+// MPU6050 6 axis accel & gyro
+// MPU9250 9 axis accel & gyro & mag
 // DS3231 RTC
 // LCD 1602 display 2*16 
-// MPU6050 6 axis accel & gyro
 //
-// s60sc 2023
+// To enable a device, set the appropriate USE_* define in appGlobals.h
+//
+// s60sc 2023, 2024
+// incorporates contributions from rjsachse
 
 #include "appGlobals.h"
+
+#if INCLUDE_I2C
+
+#define SENSOR_TIMEOUT 100 // max time in ms to wait for sensor response
+
 #include <Wire.h>
 
-// global constants
-int I2C_SDA;
-int I2C_SCL;
-
+// define which pins to use for I2C bus in call to initializeI2C()
+// if pins not correctly defined for board, spurious results will occur
+int I2Csda = -1;
+int I2Cscl = -1;
 static byte I2CDATA[10]; // store I2C data received or to be sent 
-
+static int I2Cdevices = -1;
+static bool isShared = false;
+  
 // I2C device names, indexed by address
 static bool deviceStatus[128] = {false}; // whether device present
 static const char* clientName[128] = {
-  "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "",
+  "", "", "", "", "", "", "", "", "", "", "", "", "AK8963", "", "", "",
   "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "",
   "", "", "", "", "", "", "", "LCD1602", "", "", "", "", "", "", "", "",
-  "", "", "", "", "", "", "", "", "", "", "", "", "SSD1306", "SSD1306", "", "",
+  "OV2640", "", "", "", "", "", "", "", "", "", "", "", "OV5640/SSD1306", "SSD1306", "", "",
   "", "", "", "", "", "", "", "", "PCF8591", "", "", "", "", "", "", "",
   "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "",
-  "", "", "", "", "", "", "", "", "DS3231/MPU6050", "MPU6050", "", "", "", "", "", "",
-  "", "", "", "", "", "", "BM*280", "BM*280", "", "", "", "", "", "", "", ""};
+  "OV2640", "OV2640", "", "", "", "", "", "", "MPUxx50/DS3231", "MPUxx50", "", "", "", "", "", "",
+  "", "", "", "", "", "", "BMx280", "BMx280", "OV5640", "OV5640", "", "", "", "", "", ""};
 
+static bool prepI2Cdevices();
 
 /********************* Generic I2C Utilities ***********************/
 
@@ -48,32 +60,19 @@ static bool sendTransmission(int clientAddr, bool scanning) {
   return (result == 0) ? true : false;
 }
 
-static bool scanI2C() {
+static void scanI2C() {
   // find details of any active I2C devices
   LOG_INF("I2C device scanning");
-  int nDevices = 0;
   for (byte address = 0; address < 127; address++) {
     Wire.beginTransmission(address);
     // only report error if client device meant to be present
     if (sendTransmission(address, true)) {
       LOG_INF("I2C device %s present at address: 0x%x", clientName[address], address);
-      nDevices++;
+      I2Cdevices++;
       deviceStatus[address] = true;
     }
   }
-  LOG_INF("I2C devices found: %d", nDevices);
-  return (bool)nDevices;
-}
-
-bool startI2C() {
-  if (I2C_SDA == I2C_SCL) LOG_ALT("I2C pins not defined");
-  else {
-    // list I2C devices available
-    Wire.begin(I2C_SDA, I2C_SCL); // join i2c bus as master 
-    if (scanI2C()) return checkI2Cdevices(true); // start available devices
-    else return false;
-  }
-  return false;
+  LOG_INF("I2C devices found: %d", I2Cdevices);
 }
 
 static bool getI2Cdata (uint8_t clientAddr, uint8_t controlByte, uint8_t numBytes) {
@@ -103,24 +102,53 @@ static bool sendI2Cdata(int clientAddr, uint8_t controlByte, uint8_t numBytes) {
   return sendTransmission(clientAddr, false);
 }
 
+bool shareI2C(int sdaShare, int sclShare) {
+  // apply given pins if bus to be shared 
+  /* await cam lib fix */
+  if (I2Csda < 0) { 
+    // I2C bus shared with another peripheral, eg camera
+    I2Csda = sdaShare;
+    I2Cscl = sclShare;
+    isShared = true;
+    Wire.begin(I2Csda, I2Cscl); // Join I2C bus as master
+    LOG_INF("I2C bus shared with camera");
+  }
+  return isShared;
+}
+
+bool prepI2C() {
+  // start I2C port if not shared then prep I2C peripherals
+  if (I2Csda == I2Cscl) {
+    LOG_ALT("I2C pins not defined: %d", I2Csda);
+    return false;
+  } 
+  // start I2C
+  if (!isShared) {
+    Wire.begin(I2Csda, I2Cscl); // Join I2C bus as master
+    //Wire.setClock(400000); // default 100kHz, max 400kHz
+  }
+  LOG_INF("%sI2C initialised at %dkHz using pins SDA: %d, SCL: %d", isShared ? "Shared " : "", Wire.getClock() / 1000, I2Csda, I2Cscl);
+
+  I2Cdevices = 0;
+  scanI2C();
+  return prepI2Cdevices();
+}
 
 /***************************************** OLED Display *************************************/
 
 #define SSD1306_BIaddr 0x3d // built in oled 
-#define SSD1306_Extaddr 0x3c // external oled
+#define SSD1306_Extaddr 0x3c // external oled (also address for OV5640
 #if USE_SSD1306
-#include "SSD1306Wire.h" 
+#include "SSD1306Wire.h" // https://github.com/ThingPulse/esp8266-oled-ssd1306
 SSD1306Wire oledBI(SSD1306_BIaddr);
 SSD1306Wire oledExt(SSD1306_Extaddr);
 SSD1306Wire* thisOled;
-#endif
 
 static bool oledOK = false;
 bool flipOled = false; // true if oled pins oriented above display
 
 // OLED SSD1306 display 128*64
-void oledLine(const char* msg, int hpos, int vpos, int msgwidth, int fontsize) {
-#if (USE_SSD1306) 
+void oledLine(const char* msg, int hpos, int vpos, int msgwidth, int fontsize) { 
   // display text message on OLED SSD1306 display 
   // to avoid flicker, only call periodically
   // args: message string, horizontal pixel start, vertical pixel start, width to clear, font type
@@ -136,29 +164,23 @@ void oledLine(const char* msg, int hpos, int vpos, int msgwidth, int fontsize) {
     thisOled->setColor(WHITE);
     thisOled->drawString(hpos, vpos, msg);
   }
-#endif
 }
 
-static void tellTale() {
-#if (USE_SSD1306) 
+static void tellTale() { 
   static bool ledState = false;
   ledState = !ledState;
   static const char* tellTaleStr[] = {"*", ""}; // shows that oled (& I2C) are running
   oledLine(tellTaleStr[ledState],124,60,4,10); 
-#endif
 }
 
 void oledDisplay() {
-#if (USE_SSD1306) 
   if (oledOK) {
     tellTale();   // oled telltale
     thisOled->display();
   }
-#endif
 }
 
-static bool setupOled(bool showWarn) {
-#if (USE_SSD1306) 
+static bool setupOled() {
   if (!oledOK) {
     oledOK = true;
     if (deviceStatus[SSD1306_BIaddr]) thisOled = &oledBI;
@@ -169,23 +191,21 @@ static bool setupOled(bool showWarn) {
       if (thisOled->init()) { if (flipOled) thisOled->flipScreenVertically(); }
       else oledOK = false;
     }
-    if (!oledOK && showWarn) LOG_WRN("SSD1306 oled not available");
+    if (!oledOK) LOG_WRN("SSD1306 oled not available");
   }
-#endif
   return oledOK;
 }
 
 void finalMsg(const char* finalTxt) {
-#if (USE_SSD1306) 
   if (oledOK) {
     // display message on persistent oled screen before esp32 goes to sleep
     thisOled->resetDisplay();
     oledLine(finalTxt,0,0,128,16);
     thisOled->display();
-    delay(2000); //// keep tag displayed
+    delay(2000); // keep tag displayed
   }
-#endif
 }
+#endif
 
 /*********************** PCF8591 ************************/
 
@@ -202,82 +222,84 @@ byte* getPCF8591() { // analog channels
    bit 6: analog out enable
   */
   static byte PCF8591[4] = {0}; 
-  if (USE_PCF8591) {
-    if (deviceStatus[PCF8591addr]) {
-      if (getI2Cdata(PCF8591addr, 0x44, 5)) {
-        // need to read 5 bytes, but ignore first as it is previous 0 channel
-        // order high -> low channels 3 2 1 0
-        for (int i = 0; i < 4; i++) PCF8591[i] = smoothAnalog(I2CDATA[i + 1]);
-      } 
-    } else LOG_WRN("PCF8591 ADC not available");
-  }
+  if (deviceStatus[PCF8591addr]) {
+    if (getI2Cdata(PCF8591addr, 0x44, 5)) {
+      // need to read 5 bytes, but ignore first as it is previous 0 channel
+      // order high -> low channels 3 2 1 0
+      for (int i = 0; i < 4; i++) PCF8591[i] = smoothAnalog(I2CDATA[i + 1]);
+    } 
+  } else LOG_WRN("PCF8591 ADC not available");
   return PCF8591;
 }
 
-/********************************** BMP280 ************************************/
+/******************************* BMP280 / BME280 ******************************/
 
-#define BMP280_Def 0x76 // BMP280 default address
-#define BMP280_Alt 0x77 // BMP280 alternative address
-#define SEA_LEVEL 1013.25 // reference pressure in mB/hPa at sea level
+#define BMx280_Def 0x76 // BMX280 default address
+#define BMx280_Alt 0x77 // BMX280 alternative address
+#if USE_BMx280
+#define STD_PRESSURE 1013.25 // reference pressure in mB/hPa at sea level
+#define DEGREE_SYMBOL "\xC2\xB0"
 
-#if USE_BMP280
-#include <BMx280I2C.h>
-BMx280I2C bmpDef(BMP280_Def); 
-BMx280I2C bmpAlt(BMP280_Alt);
-BMx280I2C* thisBmp;
-#endif
+#include <BMx280I2C.h> // https://github.com/christandlg/BMx280MI
+BMx280I2C bmxDef(BMx280_Def); 
+BMx280I2C bmxAlt(BMx280_Alt);
+BMx280I2C* thisBmx;
 
-static bool BMPok = false;
+static bool BMx280ok = false;
 static bool isBME = false;
 
-float* getBMP280() { // temp & pressure
-  static float BMP280[4] = {0};
-#if USE_BMP280
-  if (BMPok) {
-    if (thisBmp->hasValue()) {
-      // PSI = pascals * 0.000145
-      BMP280[0] = thisBmp->getPressure() * 0.01;  // pascals to mB/hPa
-      // ambient temperature (but affected by chip heating)
-      BMP280[1] = thisBmp->getTemperature(); // celsius 
-      BMP280[2] = 44330.0 * (1.0 - pow(BMP280[0] / SEA_LEVEL, 1.0 / 5.255)); // altitude in meters
-      if (isBME) BMP280[3] = thisBmp->getHumidity(); // % relative humidity
-    }
-  }
-#endif
-  return BMP280;
-}
-
-static bool setupBMP(bool showWarn) {
-#if USE_BMP280
-  // check if BM*280 is available
-  if (!BMPok) {
-    BMPok = true;
-    if (deviceStatus[BMP280_Def]) thisBmp = &bmpDef;
-    else if (deviceStatus[BMP280_Alt]) thisBmp = &bmpAlt;
-    else BMPok = false;
-    if (BMPok) {
-      BMPok = thisBmp->begin();
-      if (BMPok) {
-        isBME = thisBmp->isBME280();
-        thisBmp->resetToDefaults();
-        thisBmp->writeOversamplingPressure(BMx280MI::OSRS_P_x16);
-        thisBmp->writeOversamplingTemperature(BMx280MI::OSRS_T_x16);
-        if (isBME) thisBmp->writeOversamplingHumidity(BMx280MI::OSRS_H_x16);
-        thisBmp->measure();
+static bool setupBMx() {
+  // setup BMx280 if available
+  if (!BMx280ok) {
+    BMx280ok = true;
+    if (deviceStatus[BMx280_Def]) thisBmx = &bmxDef;
+    else if (deviceStatus[BMx280_Alt]) thisBmx = &bmxAlt;
+    else BMx280ok = false;
+    if (BMx280ok) {
+      BMx280ok = thisBmx->begin();
+      if (BMx280ok) {
+        isBME = thisBmx->isBME280();
+        thisBmx->resetToDefaults();
+        thisBmx->writeOversamplingPressure(BMx280MI::OSRS_P_x16);
+        thisBmx->writeOversamplingTemperature(BMx280MI::OSRS_T_x16);
+        if (isBME) thisBmx->writeOversamplingHumidity(BMx280MI::OSRS_H_x16);
+        thisBmx->measure();
       }
     }
-    if (!BMPok && showWarn) LOG_WRN("BM*280 not available");
+    if (!BMx280ok) LOG_WRN("BMx280 not available");
   } 
-#endif
-  return BMPok;
+  return BMx280ok;
 }
 
-bool isBME280() {
+float* getBMx280() { 
+  // get and return pressure, temperature, altitude, humidity
+  static float BMx280[4] = {0};
+  if (BMx280ok) {
+    thisBmx->measure();
+    uint32_t bmxWait = millis();
+    while(!thisBmx->hasValue() && millis() - bmxWait < SENSOR_TIMEOUT) delay(10);
+    if (thisBmx->hasValue()) {
+      // PSI = pascals * 0.000145
+      // ambient temperature (but affected by chip heating)
+      BMx280[0] = thisBmx->getTemperature(); // celsius 
+      BMx280[1] = thisBmx->getPressure() * 0.01;  // pascals to mB/hPa
+      BMx280[2] = 44330.0 * (1.0 - pow(BMx280[1] / STD_PRESSURE, 1.0 / 5.255)); // altitude in meters
+      if (isBME) BMx280[3] = thisBmx->getHumidity(); // % relative humidity
+    }
+  }
+  return BMx280;
+}
+
+bool identifyBMx() {
   return isBME;
 }
+#endif
 
 /********************************** MPU6050 ************************************/
 
+#define MPUxx50_HIGH 0x69 // MPU6050 / MPU9250 I2C address if AD0 pulled high
+#define MPUxx50_LOW 0x68  // MPU6050 / MPU9250 I2C address if AD0 grounded
+#if USE_MPU6050
 // MPU6050 definitions - not gyroscope
 #define SENS_2G (32768.0/2.0) // divider for 2G sensitivity reading
 #define ACCEL_BYTES 6 // 2 bytes per axis
@@ -285,9 +307,6 @@ bool isBME280() {
 #define ACCEL_CONFIG 0x1C
 #define ACCEL_XOUT_H 0x3B
 #define PWR_MGMT_1 0x6B
-
-#define MPU6050_HIGH 0x69 // MPU6050 I2C address if AD0 pulled high
-#define MPU6050_LOW 0x68  // MPU6050 I2C address if AD0 grounded
 
 static uint8_t MPU6050addr;
 static bool MPU6050ok = false;
@@ -299,11 +318,11 @@ bool sleepMPU6050(bool doSleep) {
   return sendI2Cdata(MPU6050addr, PWR_MGMT_1, 1);
 }
 
-static bool setupMPU6050(bool showWarn) {
-  if (USE_MPU6050 && !MPU6050ok) {
+static bool setupMPU6050() {
+  if (!MPU6050ok) {
     MPU6050ok = true;
-    if (deviceStatus[MPU6050_HIGH]) MPU6050addr = MPU6050_HIGH;
-    else if (deviceStatus[MPU6050_LOW]) MPU6050addr = MPU6050_LOW;
+    if (deviceStatus[MPUxx50_HIGH]) MPU6050addr = MPUxx50_HIGH;
+    else if (deviceStatus[MPUxx50_LOW]) MPU6050addr = MPUxx50_LOW;
     else MPU6050ok = false;
     if (MPU6050ok) {
       // set full range
@@ -312,13 +331,13 @@ static bool setupMPU6050(bool showWarn) {
       // wakeup the sensor 
       if (MPU6050ok) sleepMPU6050(false);
     } 
-    if (!MPU6050ok && showWarn) LOG_WRN("MPU6050 6 axis not available");
+    if (!MPU6050ok) LOG_WRN("MPU6050 6 axis not available");
   }
   return MPU6050ok;
 }
 
-float* readMPU6050() {
-  // get data from MPU6050 
+float* getMPU6050() {
+  // get data from MPU6050 and return as array
   static float Gforce[4] = {0};
   if (MPU6050ok) {
     if (getI2Cdata(MPU6050addr, ACCEL_XOUT_H, ACCEL_BYTES+2)) { 
@@ -345,17 +364,80 @@ float* readMPU6050() {
   }
   return Gforce;
 }
+#endif
 
+/********************************** MPU9250 ************************************/
+/*
+MPU9250 on GY-91
+VIN: Voltage Supply Pin
+3V3: 3.3v Regulator output
+GND: 0V Power Supply
+SCL: I2C Clock 
+SDA: I2C Data 
+SDO/SAO: I2C Address selection MPU9250
+NCS: n/a
+CSB: I2C Address selection BMP280
+*/
+#if USE_MPU9250
+#include "MPU9250.h" // https://github.com/hideakitai/MPU9250
+// accel axis orientation on GY-91:                      
+// - X : short side (pitch)
+// - Y : long side (roll)
+// - Z : up (yaw from true N)
+// Note internal AK8963 magnetometer is at address 0x0C
+#define LOCAL_MAG_DECLINATION (4 + 56/60)  // see https://www.magnetic-declination.com/ for local value
+
+static MPU9250 mpu9250;
+static uint8_t MPU9250addr;
+static bool MPU9250ok = false;
+
+static bool setupMPU9250() {
+  if (!MPU9250ok) {
+    MPU9250ok = true;
+    if (deviceStatus[MPUxx50_HIGH]) MPU9250addr = MPUxx50_HIGH;
+    else if (deviceStatus[MPUxx50_LOW]) MPU9250addr = MPUxx50_LOW;
+    else MPU9250ok = false;
+    if (MPU9250ok) {
+      if (mpu9250.setup(MPU9250addr)) {
+        mpu9250.setMagneticDeclination(LOCAL_MAG_DECLINATION);
+        mpu9250.selectFilter(QuatFilterSel::MADGWICK);
+        mpu9250.setFilterIterations(15);
+        LOG_INF("MPU9250 calibrating, leave still");
+        mpu9250.calibrateAccelGyro();
+  //    LOG_INF("Move MPU9250 in a figure of eight until done");
+  //    delay(2000);
+  //    mpu9250.calibrateMag();
+      } else MPU9250ok = false;
+    } 
+    if (!MPU9250ok) LOG_WRN("MPU9250 9 axis not available");
+  }
+  return MPU9250ok;
+}
+
+float* getMPU9250() {
+  // get data from MPU9250 and return as array
+  // only some functions obtained
+  static float Gforce[4] = {0};
+  if (MPU9250ok) {
+    uint32_t mpuWait = millis();
+    while (!mpu9250.update() && millis() - mpuWait < SENSOR_TIMEOUT) delay(10);
+    if (mpu9250.update()) {
+      Gforce[0] = mpu9250.getYaw();
+      Gforce[1] = mpu9250.getPitch();
+      Gforce[2] = mpu9250.getRoll();
+    }
+  }
+  return Gforce;
+}
+#endif
 
 /********************************* DS3231 RTC ************************************/
 
+#define DS3231_RTC 0x68 // real time clock (address may conflict with MPU6050)
 #if USE_DS3231
 #include "driver/rtc_io.h"
-#include <RtcDS3231.h>
+#include <RtcDS3231.h> // https://github.com/Makuna/Rtc/wiki
 RtcDS3231<TwoWire> Rtc(Wire);
-#endif
-
-#define DS3231_RTC 0x68 // real time clock (address may conflict with MPU6050
 
 static bool DS3231ok = false;
 static volatile bool RTCalarmFlag = false;
@@ -366,8 +448,7 @@ static void IRAM_ATTR RTCalarmISR() {
   if (xHigherPriorityTaskWoken == pdTRUE) portYIELD_FROM_ISR();
 }
 
-static bool setupRTC(bool showWarn) {
-#if USE_DS3231
+static bool setupRTC() {
   // CONNECTIONS:
   // DS3231 SDA --> SDA
   // DS3231 SCL --> SCL
@@ -401,15 +482,14 @@ static bool setupRTC(bool showWarn) {
       
       Rtc.Enable32kHzPin(false);
       Rtc.SetSquareWavePin(DS3231SquareWavePin_ModeAlarmBoth); // set to be alarm output
-      Rtc.LatchAlarmsTriggeredFlags();  // throw away any old alarm state before we ran
+      Rtc.LatchAlarmsTriggeredFlags();  // throw away any old alarm state
       // setup alarm interrupt 
       attachInterrupt(digitalPinToInterrupt(SQWpin), RTCalarmISR, FALLING);
       
       DS3231ok = true;
     } else DS3231ok = false;
   }
-  if (!DS3231ok && showWarn) LOG_WRN("DS3231 RTC not available");
-#endif
+  if (!DS3231ok) LOG_WRN("DS3231 RTC not available");
   return DS3231ok;
 }
 
@@ -421,7 +501,6 @@ int cycleRange(int currVal, int minVal, int maxVal) {
 }
 
 void setRTCintervalAlarm(int alarmHour, int alarmMin) {
-#if USE_DS3231
   // Alarm 1 can be once per second, or at given time - seconds accuracy
   // Used here for repeated interval time (hours & minutes of interval) - so set multiple times
   // occurs on 30 secs mark to avoid clash with setRTCrolloverAlarm()
@@ -432,11 +511,9 @@ void setRTCintervalAlarm(int alarmHour, int alarmMin) {
     DS3231AlarmOne alarm1(0, nextHour, nextMin, 30, DS3231AlarmOneControl_HoursMinutesSecondsMatch);
     Rtc.SetAlarmOne(alarm1);
   }
-#endif
 }
 
 void setRTCspecificAlarm(int alarmHour, int alarmMin) {
-#if USE_DS3231
   // Alarm 1 can be once per second, or at given time - seconds accuracy
   // Used here for specific time (hours & minutes of day) - so can be set multiple times
   // occurs on 30 secs mark to avoid clash with setRTCrolloverAlarm()
@@ -445,35 +522,29 @@ void setRTCspecificAlarm(int alarmHour, int alarmMin) {
     DS3231AlarmOne alarm1(0, alarmHour, alarmMin, 30, DS3231AlarmOneControl_HoursMinutesSecondsMatch);
     Rtc.SetAlarmOne(alarm1);
   }
-#endif
 }
 
 void setRTCrolloverAlarm(int alarmHour, int alarmMin) {
-#if USE_DS3231
   // Alarm 2 can be once per minute, or at a given time - minute accuracy
   // Used here for daily rollover alarm - set once
   if (DS3231ok) {
     DS3231AlarmTwo alarm2(0, alarmHour, alarmMin, DS3231AlarmTwoControl_HoursMinutesMatch);
     Rtc.SetAlarmTwo(alarm2);
   }
-#endif
 }
 
 uint32_t getRTCtime() {
-#if USE_DS3231
   // get current RTC time as epoch
   if (DS3231ok) {
     if (!Rtc.IsDateTimeValid()) LOG_WRN("RTC lost confidence in the DateTime!");
-    return (uint32_t) Rtc.GetDateTime();
+    return Rtc.GetDateTime().Unix32Time();
   }
-#endif
-return 0;
+  return 0;
 }
 
 int RTCalarmed() {
   // check if RTC alarm occurred and return alarm number
   int wasAlarmed = 0;
-#if USE_DS3231
   if (DS3231ok) {
     if (RTCalarmFlag) { 
       RTCalarmFlag = false; // reset the flag
@@ -482,39 +553,35 @@ int RTCalarmed() {
       if (flag & DS3231AlarmFlag_Alarm2) wasAlarmed = 2;
     }
   }
-#endif
   return wasAlarmed;
 }
 
 float RTCtemperature() {
-#if USE_DS3231
   // internal temperature of DS3231
   if (DS3231ok) {
     RtcTemperature temp = Rtc.GetTemperature();
     return temp.AsFloatDegC();
   }
-#endif
   return 0;
 }
 
 void RTCdatetime(char* datestring, int datestringLen) {
-#if USE_DS3231
   // return RTC formatted date time string
   if (DS3231ok) {
-    if (!Rtc.IsDateTimeValid()) log_wrn("RTC lost confidence in the DateTime!");
+    if (!Rtc.IsDateTimeValid()) LOG_WRN("RTC lost confidence in the DateTime!");
     RtcDateTime dt = Rtc.GetDateTime(); // seconds since jan 1 2000
     snprintf(datestring, datestringLen, "%02u/%02u/%04u %02u:%02u:%02u",
       dt.Day(), dt.Month(), dt.Year(), dt.Hour(), dt.Minute(), dt.Second());
   }
-#endif
 }
-
+#endif
 
 /**************************** LCD1602 ******************************/
 // I2C LCD display: 2 lines, 16 cols 
 // Derived from https://github.com/arduino-libraries/LiquidCrystal
 
 #define LCD1602 0x27 // 16 chars by 2 lines LCD
+#if USE_LCD1602
 
 // commands
 #define LCD_CLEARDISPLAY 0x01
@@ -618,8 +685,8 @@ void lcdDisplay(bool setDisplay) {
   lcdSend(LCD_DISPLAYCONTROL | displaycontrol);
 }
 
-static bool setupLCD1602(bool showWarn) {  
-  if (USE_LCD1602 && !LCD1602ok) {
+static bool setupLCD1602() {  
+  if (!LCD1602ok) {
     if (deviceStatus[LCD1602]) {
       LCD1602ok = true;
       delay(50); 
@@ -650,7 +717,7 @@ static bool setupLCD1602(bool showWarn) {
       lcdHome();
       lcdBacklight(true); 
     } else LCD1602ok = false;
-    if (!LCD1602ok && showWarn) LOG_WRN("LCD1602 display not available");
+    if (!LCD1602ok) LOG_WRN("LCD1602 display not available");
   }
   return LCD1602ok;
 }
@@ -724,15 +791,50 @@ void lcdWriteCustom(uint8_t charLoc) {
   if (charLoc > 7) LOG_WRN("custom char number %u out of range", charLoc);
   else lcdSend(charLoc, Rs);
 }
+#endif
 
 /**************************** Setup ******************************/
 
-bool checkI2Cdevices(bool showWarn) {
-  // check if I2C devices available and setup
-  setupOled(showWarn);
-  setupBMP(showWarn);
-  setupMPU6050(showWarn);
-  setupRTC(showWarn);
-  setupLCD1602(showWarn);
-  return true;
+bool checkI2Cdevice(const char* devName) {
+  // get current device status
+  if (!strcmp(devName, "SSD1306")) return deviceStatus[SSD1306_BIaddr] || deviceStatus[SSD1306_Extaddr] ? true : false;
+  if (!strcmp(devName, "PCF8591")) return deviceStatus[PCF8591addr];
+  if (!strcmp(devName, "BMx280")) return deviceStatus[BMx280_Def] || deviceStatus[BMx280_Alt] ? true : false;
+  if (!strcmp(devName, "MPU6050")) return deviceStatus[MPUxx50_HIGH] || deviceStatus[MPUxx50_LOW]  ? true : false;
+  if (!strcmp(devName, "MPU9250")) return deviceStatus[MPUxx50_HIGH] || deviceStatus[MPUxx50_LOW]  ? true : false;
+  if (!strcmp(devName, "DS3231")) return deviceStatus[DS3231_RTC];
+  if (!strcmp(devName, "LCD1602")) return deviceStatus[LCD1602];
+  LOG_WRN("Device name %s not recognised", devName);
+  return false;
 }
+
+static bool prepI2Cdevices() {
+  // setup available I2C devices 
+  // Note: only called externally by cam
+  if (I2Cdevices < 0) LOG_ERR("prepI2C() not called");
+  else if (I2Cdevices == 0) LOG_WRN("No I2C devices connected");
+  else {
+#if USE_SSD1306
+    setupOled();
+#endif
+#if USE_BMx280
+    setupBMx();
+#endif
+#if USE_MPU6050
+    setupMPU6050();
+#endif
+#if USE_MPU9250
+    setupMPU9250();
+#endif
+#if USE_DS3231
+    setupRTC();
+#endif
+#if USE_LCD1602
+    setupLCD1602();
+#endif
+    return true;
+  }
+  return false;
+}
+
+#endif

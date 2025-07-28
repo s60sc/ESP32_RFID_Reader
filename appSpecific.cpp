@@ -36,8 +36,8 @@ bool updateAppStatus(const char* variable, const char* value, bool fromUser) {
   else if (!strcmp(variable, "rfidClock")) rfidClock = intVal;
   else if (!strcmp(variable, "rfidFreq")) rfidFreq = fltVal;
   else if (!strcmp(variable, "encodeFDX")) encodeFDX = (bool)intVal;
-  else if (!strcmp(variable, "I2C_SDA")) I2C_SDA = intVal;
-  else if (!strcmp(variable, "I2C_SCL")) I2C_SCL = intVal;
+  else if (!strcmp(variable, "I2Csda")) I2Csda = intVal;
+  else if (!strcmp(variable, "I2Cscl")) I2Cscl = intVal;
   else if (!strcmp(variable, "clearPin")) clearPin = intVal;
   else if (!strcmp(variable, "resetTag")) {
     currentTag = 0;
@@ -86,7 +86,7 @@ void buildAppJsonString(bool filter) {
 }
 
 esp_err_t appSpecificWebHandler(httpd_req_t *req, const char* variable, const char* value) {
-  return ESP_OK;
+  return ESP_FAIL;
 }
 
 esp_err_t appSpecificSustainHandler(httpd_req_t* req) {
@@ -133,8 +133,8 @@ rfidDemod~~1~N~Input pin for RFID data
 rfidClock~~1~N~Output pin for RFID clock
 clearPin~~1~N~Input pin to clear tag display
 encodeFDX~0~2~B:EM4100:FXD-B~Encoding type
-I2C_SDA~21~1~N~I2C_SDA pin
-I2C_SCL~22~1~N~I2C_SCL pin
+I2Csda~21~1~N~I2C SDA pin
+I2Cscl~22~1~N~I2C SCL pin
 rfidFreq~~1~N~Antenna frequency in kHz (blank for default)
 EncodeType~~2~D~RFID Encoding
 currentTag~~2~D~Current Tag ID

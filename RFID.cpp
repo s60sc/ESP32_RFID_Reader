@@ -48,16 +48,10 @@ static bool parseBitBufferFDX(uint8_t currIndex);
 static void runClock() {
   // output PWM clock to RDM6300 at required frequency
   int dutyBits = 1; // 50% duty
-#if ESP_ARDUINO_VERSION >= ESP_ARDUINO_VERSION_VAL(3, 0, 0)
   ledcAttach(rfidClock, (int)(rfidFreq * 1000), dutyBits); 
   ledcWrite(rfidClock, 1);
-#else
-  int rfidChannel = 4;
-  ledcSetup(rfidChannel, (int)(rfidFreq * 1000), dutyBits); 
-  ledcAttachPin(rfidClock, rfidChannel);
-  ledcWrite(rfidChannel, 1);
-#endif
 }
+
 void IRAM_ATTR buttonISR() {
   buttonPressed = true;
 } 
@@ -77,7 +71,7 @@ static void IRAM_ATTR demodISR() {
   
   if (!captured) {
     elapsedMicros = simulation ? simPulse : micros() - lastMicros; 
-    lastMicros = micros(); // elapsed uS between interrupts     
+    lastMicros = micros(); // elapsed uS between interrupts
     if (captureIndex >= captureSize) captured = true;
     else {
       if (elapsedMicros > minPulse && elapsedMicros < maxPulse) { 

@@ -26,7 +26,7 @@ void setup() {
   if (strlen(startupFailure)) LOG_ERR("%s", startupFailure);
   else {
     // start rest of services
-    startI2C();
+    prepI2C();
     rfidSetup(); // setup rfid reader
     checkMemory();
     startedUp = true;
