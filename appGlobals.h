@@ -18,12 +18,13 @@
 #define DEBUG_MEM false // leave as false
 #define FLUSH_DELAY 0 // for debugging crashes
 #define DBG_ON false // esp debug output
+#define DBG_LVL ESP_LOG_ERROR // level if DBG_ON true: ESP_LOG_ERROR, ESP_LOG_WARN, ESP_LOG_INFO, ESP_LOG_DEBUG, ESP_LOG_VERBOSE
 #define DOT_MAX 50
 #define HOSTNAME_GRP 0
 #define USE_IP6 false
  
 #define APP_NAME "ESP32_RFID" // max 15 chars
-#define APP_VER "2.2"
+#define APP_VER "2.3"
 
 #define HTTP_CLIENTS 2 // http, ws
 #define MAX_STREAMS 0
@@ -56,7 +57,7 @@
 #define USE_LCD1602 true // set to false if not using LCD1602
 
 // to determine if newer data files need to be loaded
-#define CFG_VER 2
+#define CFG_VER 3
 
 #ifdef CONFIG_IDF_TARGET_ESP32S3 
 #define SERVER_STACK_SIZE (1024 * 8)
@@ -95,6 +96,7 @@
 void rfidSetup();
 void rfidRead();
 
+void blinkLed();
 bool lcdInit();
 void lcdPrint(const char* str);
 void lcdClear();
@@ -118,6 +120,7 @@ extern const char* appConfig;
 extern int rfidDemod; // input - demod pin from RDM6300, pullup high
 extern int rfidClock; // output - clock pin to RDM6300
 extern int clearPin; // input - clear tag display
+extern int ledPin; // ouput - blink led status
 extern float rfidFreq; // antenna frequency in kHz
 extern bool encodeFDX; // false for EM4100, true for FXD-B
 extern char encodingStr[]; // encoding type string

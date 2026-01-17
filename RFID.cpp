@@ -13,6 +13,7 @@
 int rfidDemod; // input - demod pin from RDM6300, pullup high
 int rfidClock; // output - clock pin to RDM6300
 int clearPin; // input - clear tag display
+int ledPin; // ouput - blink led status
 float rfidFreq; // RDM6300 antenna frequency
 bool encodeFDX = false; // false for EM4100, true for FXD-B
 uint64_t currentTag; // read tag value
@@ -376,6 +377,7 @@ void rfidSetup() {
   sprintf(encodingStr, "%s %0.1fkHz", codeStr[encodeFDX], rfidFreq);
   updateLcd(false);
   LOG_INF("Detect tag type: %s", encodingStr);
+  blinkLed();
 }
 
 void rfidRead() {

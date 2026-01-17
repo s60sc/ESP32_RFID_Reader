@@ -25,6 +25,24 @@ void updateLcd(bool showTag) {
   lcdPrint(currentTagStr);
 }
 
+static void blinkTask(void *arg) {
+  // blink LED to show that started up ok
+  while (true) {
+    digitalWrite(ledPin, HIGH);
+    delay(1000);
+    digitalWrite(ledPin, LOW); 
+    delay(1000);
+  }
+  vTaskDelete(NULL);
+}
+
+void blinkLed() {
+  if (ledPin) {
+    pinMode(ledPin, OUTPUT);
+    xTaskCreate(blinkTask, "blinkTask", 2048, NULL, 1, NULL);
+  }
+}
+
 /************************ webServer callbacks *************************/
 
 bool updateAppStatus(const char* variable, const char* value, bool fromUser) {
@@ -39,6 +57,7 @@ bool updateAppStatus(const char* variable, const char* value, bool fromUser) {
   else if (!strcmp(variable, "I2Csda")) I2Csda = intVal;
   else if (!strcmp(variable, "I2Cscl")) I2Cscl = intVal;
   else if (!strcmp(variable, "clearPin")) clearPin = intVal;
+  else if (!strcmp(variable, "ledPin")) ledPin = intVal;
   else if (!strcmp(variable, "resetTag")) {
     currentTag = 0;
     updateLcd(false);
@@ -126,15 +145,16 @@ allowAP~1~0~C~Allow simultaneous AP
 timezone~GMT0~0~T~Timezone string: tinyurl.com/TZstring
 logType~0~99~N~Output log selection
 Auth_Name~~0~T~Optional user name for web page login
-Auth_Pass~~0~T~Optional user name for web page password
+Auth_Pass~~0~T~Optional web page password
 wifiTimeoutSecs~30~0~N~WiFi connect timeout (secs)
 refreshVal~1~0~N~Web page refresh rate (secs)
-rfidDemod~~1~N~Input pin for RFID data
-rfidClock~~1~N~Output pin for RFID clock
-clearPin~~1~N~Input pin to clear tag display
+rfidDemod~1~1~N~Input pin for RFID data
+rfidClock~3~1~N~Output pin for RFID clock
+clearPin~9~1~N~Optional input pin to clear tag display
+ledPin~8~1~N~Optional output pin for blink LED
 encodeFDX~0~2~B:EM4100:FXD-B~Encoding type
-I2Csda~21~1~N~I2C SDA pin
-I2Cscl~22~1~N~I2C SCL pin
+I2Csda~6~1~N~I2C SDA pin
+I2Cscl~7~1~N~I2C SCL pin
 rfidFreq~~1~N~Antenna frequency in kHz (blank for default)
 EncodeType~~2~D~RFID Encoding
 currentTag~~2~D~Current Tag ID

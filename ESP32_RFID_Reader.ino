@@ -20,12 +20,9 @@ void setup() {
 #endif
 
   // connect wifi or start config AP if router details not available
-  startWifi(); 
-  
-  startWebServer();
-  if (strlen(startupFailure)) LOG_ERR("%s", startupFailure);
-  else {
-    // start rest of services
+  startNetwork();
+  if (startWebServer()) {
+    // start app services
     prepI2C();
     rfidSetup(); // setup rfid reader
     checkMemory();
